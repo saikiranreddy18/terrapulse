@@ -468,26 +468,33 @@ function openDetail(d) {
 // live news for the selected event (GDELT — free, keyless, real articles)
 const CAT_WORD = { wildfires: 'wildfire', severeStorms: 'storm', volcanoes: 'volcano eruption', seaLakeIce: 'iceberg' };
 async function loadNews(d) {
-  const topic = d.kind === 'quake'
-    ? `earthquake ${d.short}`
-    : `${d.title.replace(/[^\w\s]/g, ' ')} ${CAT_WORD[d.cat] || ''}`;
-  $('d-yt').href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(topic);
+  // two queries: specific (event name + region), then broad (category + region)
+  const word = CAT_WORD[d.cat] || '';
+  let specific, broad;
+  if (d.kind === 'quake') {
+    specific = `earthquake ${d.short}`;
+    broad = `earthquake ${d.short.split(' ').pop()}`;
+  } else {
+    const parts = d.title.split(',').map(s => s.trim());
+    const region = parts.length > 1 ? parts[parts.length - 1] : '';
+    specific = `${d.short} ${word} ${region}`.trim();
+    broad = `${word} ${region}`.trim() || d.short;
+  }
+  $('d-yt').href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(specific);
   const box = $('d-news');
   box.innerHTML = '<div class="nw-loading">fetching live coverage…</div>';
   const mine = box.dataset.req = String(Math.random());
   const timed = (u, ms) => { const c = new AbortController(); setTimeout(() => c.abort(), ms);
     return fetch(u, { signal: c.signal }).then(r => r.ok ? r.json() : null).catch(() => null); };
-  const words = topic.trim().split(/\s+/);
+  const mapOwn = j => (j?.articles || []).map(a => ({ title: a.title, url: a.link, src: a.source,
+    when: a.pubDate ? Date.parse(a.pubDate) : null }));
   // primary: same-origin serverless proxy of Google News RSS (works on the deployed site)
-  let arts = [];
-  const own = await timed('/api/news?q=' + encodeURIComponent(words.slice(0, 6).join(' ')), 9000);
-  if (own?.articles?.length) {
-    arts = own.articles.map(a => ({ title: a.title, url: a.link, src: a.source,
-      when: a.pubDate ? Date.parse(a.pubDate) : null }));
-  } else {
+  let arts = mapOwn(await timed('/api/news?q=' + encodeURIComponent(specific), 9000));
+  if (!arts.length) arts = mapOwn(await timed('/api/news?q=' + encodeURIComponent(broad), 9000));
+  if (!arts.length) {
     // fallback: GDELT (keyless, but occasionally down)
     const j = await timed('https://api.gdeltproject.org/api/v2/doc/doc?query='
-      + encodeURIComponent(words.slice(0, 4).join(' ') + ' sourcelang:english')
+      + encodeURIComponent(broad + ' sourcelang:english')
       + '&mode=ArtList&format=json&maxrecords=4&sort=datedesc&timespan=14d', 8000);
     arts = (j?.articles || []).map(a => {
       const s = a.seendate || '';

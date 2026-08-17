@@ -489,8 +489,8 @@ async function loadNews(d) {
   const mapOwn = j => (j?.articles || []).map(a => ({ title: a.title, url: a.link, src: a.source,
     when: a.pubDate ? Date.parse(a.pubDate) : null }));
   // primary: same-origin serverless proxy of Google News RSS (works on the deployed site)
-  let arts = mapOwn(await timed('/api/news?q=' + encodeURIComponent(specific), 9000));
-  if (!arts.length) arts = mapOwn(await timed('/api/news?q=' + encodeURIComponent(broad), 9000));
+  let arts = mapOwn(await timed('/api/coverage?q=' + encodeURIComponent(specific), 9000));
+  if (!arts.length) arts = mapOwn(await timed('/api/coverage?q=' + encodeURIComponent(broad), 9000));
   if (!arts.length) {
     // fallback: GDELT (keyless, but occasionally down)
     const j = await timed('https://api.gdeltproject.org/api/v2/doc/doc?query='

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TerraPulse — Earth's Live Vital Signs</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #0a0f14; --panel: rgba(13, 20, 28, 0.92); --line: rgba(120, 200, 255, 0.14);
+    --ink: #dbeaf5; --dim: #7d95a8; --cyan: #4dd8ff; --amber: #ffb547; --red: #ff5d5d; --green: #5dffa3;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: var(--bg); color: var(--ink);
+    font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+  #map { position: absolute; inset: 0; background: #060a0e; }
+  .leaflet-container { background: #060a0e; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000; pointer-events: none;
+    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+    background: linear-gradient(180deg, rgba(6,10,14,0.9), transparent);
+  }
+  header h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 2px; }
+  header h1 span { color: var(--cyan); }
+  .pulse-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+    animation: beat 1.6s infinite; }
+  @keyframes beat { 0%,100% { box-shadow: 0 0 0 0 rgba(93,255,163,0.5); }
+    50% { box-shadow: 0 0 0 9px rgba(93,255,163,0); } }
+  header .tag { font-size: 0.72rem; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+
+  #panel {
+    position: fixed; top: 60px; left: 16px; z-index: 1000; width: 300px; max-height: calc(100% - 130px);
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    backdrop-filter: blur(10px); padding: 16px;
+  }
+  #panel::-webkit-scrollbar { width: 4px; } #panel::-webkit-scrollbar-thumb { background: var(--line); }
+  .sec { margin-bottom: 16px; }
+  .sec h2 { font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; color: var(--dim);
+    margin-bottom: 8px; border-bottom: 1px solid var(--line); padding-bottom: 5px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 10px; }
+  .stat .v { font-size: 1.25rem; font-weight: 700; color: var(--cyan); }
+  .stat .l { font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+  .stat.warn .v { color: var(--amber); } .stat.bad .v { color: var(--red); } .stat.good .v { color: var(--green); }
+
+  #aqi-bar { height: 8px; border-radius: 4px; margin: 6px 0 4px;
+    background: linear-gradient(90deg, #5dffa3, #ffe05d, #ffb547, #ff5d5d, #b04dff); position: relative; }
+  #aqi-needle { position: absolute; top: -3px; width: 3px; height: 14px; background: #fff;
+    border-radius: 2px; transition: left 1s; }
+  .small { font-size: 0.75rem; color: var(--dim); line-height: 1.5; }
+
+  .quake-item, .event-item { display: flex; gap: 9px; align-items: center; padding: 6px 4px;
+    border-radius: 8px; cursor: pointer; font-size: 0.78rem; }
+  .quake-item:hover, .event-item:hover { background: rgba(77,216,255,0.08); }
+  .mag { min-width: 34px; text-align: center; font-weight: 700; border-radius: 6px; padding: 3px 0;
+    font-size: 0.75rem; }
+  .quake-item .meta, .event-item .meta { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .quake-item .meta .t, .event-item .meta .t { color: var(--dim); font-size: 0.65rem; }
+  .ev-ico { font-size: 1rem; }
+
+  #ticker {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000; background: rgba(6,10,14,0.9);
+    border-top: 1px solid var(--line); padding: 8px 0; overflow: hidden; white-space: nowrap;
+  }
+  #ticker-inner { display: inline-block; animation: scroll 60s linear infinite; padding-left: 100vw;
+    font-size: 0.78rem; color: var(--dim); }
+  #ticker-inner b { color: var(--cyan); }
+  @keyframes scroll { to { transform: translateX(-100%); } }
+
+  #legend { position: fixed; bottom: 46px; right: 14px; z-index: 1000; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 0.7rem;
+    color: var(--dim); line-height: 1.8; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+
+  .quake-pulse { border-radius: 50%; animation: qp 2s infinite; }
+  @keyframes qp { 0% { box-shadow: 0 0 0 0 rgba(255,93,93,0.55); }
+    100% { box-shadow: 0 0 0 18px rgba(255,93,93,0); } }
+  @media (max-width: 640px) { #panel { width: calc(100% - 32px); max-height: 45%; } #legend { display: none; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<header>
+  <div class="pulse-dot"></div>
+  <h1>TERRA<span>PULSE</span></h1>
+  <div class="tag">Earth's live vital signs · all data real-time</div>
+</header>
+
+<div id="panel">
+  <div class="sec">
+    <h2>🩺 Your Air · <span id="place">locating…</span></h2>
+    <div class="stat-grid">
+      <div class="stat" id="s-aqi"><div class="v">—</div><div class="l">AQI (US)</div></div>
+      <div class="stat" id="s-pm"><div class="v">—</div><div class="l">PM2.5 µg/m³</div></div>
+      <div class="stat" id="s-temp"><div class="v">—</div><div class="l">Temp °C</div></div>
+      <div class="stat" id="s-uv"><div class="v">—</div><div class="l">UV Index</div></div>
+    </div>
+    <div id="aqi-bar"><div id="aqi-needle" style="left:0%"></div></div>
+    <div class="small" id="aqi-msg">Fetching live air quality…</div>
+  </div>
+
+  <div class="sec">
+    <h2>🌍 Seismic — last 24h (USGS)</h2>
+    <div class="stat-grid" style="margin-bottom:8px">
+      <div class="stat warn"><div class="v" id="s-qcount">—</div><div class="l">Quakes</div></div>
+      <div class="stat bad"><div class="v" id="s-qmax">—</div><div class="l">Strongest</div></div>
+    </div>
+    <div id="quakes"></div>
+  </div>
+
+  <div class="sec">
+    <h2>🔥 Active Natural Events (NASA EONET)</h2>
+    <div id="events" class="small">loading…</div>
+  </div>
+</div>
+
+<div id="legend">
+  <span class="dot" style="background:var(--red)"></span>Earthquake (size = magnitude)<br>
+  <span>🔥</span> Wildfire &nbsp; <span>🌀</span> Severe storm &nbsp; <span>🌋</span> Volcano &nbsp; <span>🧊</span> Iceberg
+</div>
+
+<div id="ticker"><div id="ticker-inner">Loading planetary feed…</div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map', { worldCopyJump: true, zoomControl: false }).setView([18, 20], 2.4);
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+const fmtAgo = ms => {
+  const m = Math.round((Date.now() - ms) / 60000);
+  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+};
+
+// ---------- USGS earthquakes (live, last 24h) ----------
+async function loadQuakes() {
+  const r = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
+  const j = await r.json();
+  const feats = j.features.filter(f => f.properties.mag >= 1);
+  document.getElementById('s-qcount').textContent = j.features.length;
+  const strongest = [...j.features].sort((a, b) => b.properties.mag - a.properties.mag)[0];
+  document.getElementById('s-qmax').textContent = 'M' + strongest.properties.mag.toFixed(1);
+
+  const magColor = m => m >= 5 ? '#ff5d5d' : m >= 3.5 ? '#ffb547' : '#ffe05d';
+  for (const f of feats) {
+    const [lon, lat] = f.geometry.coordinates;
+    const m = f.properties.mag;
+    L.circleMarker([lat, lon], {
+      radius: 2 + m * 2.1, color: magColor(m), weight: 1,
+      fillColor: magColor(m), fillOpacity: 0.35,
+      className: m >= 4.5 ? 'quake-pulse' : ''
+    }).addTo(map).bindPopup(
+      `<b>M${m} — ${f.properties.place}</b><br>${fmtAgo(f.properties.time)} · depth ${f.geometry.coordinates[2]} km`);
+  }
+  // top list
+  const top = [...feats].sort((a, b) => b.properties.mag - a.properties.mag).slice(0, 6);
+  document.getElementById('quakes').innerHTML = top.map(f => {
+    const m = f.properties.mag, [lon, lat] = f.geometry.coordinates;
+    return `<div class="quake-item" onclick="map.flyTo([${lat},${lon}],6)">
+      <div class="mag" style="background:${magColor(m)}22;color:${magColor(m)}">M${m.toFixed(1)}</div>
+      <div class="meta">${f.properties.place}<div class="t">${fmtAgo(f.properties.time)}</div></div></div>`;
+  }).join('');
+
+  // ticker
+  const line = top.map(f => `<b>M${f.properties.mag.toFixed(1)}</b> ${f.properties.place} (${fmtAgo(f.properties.time)})`).join(' &nbsp;·&nbsp; ');
+  document.getElementById('ticker-inner').innerHTML =
+    `🌍 LIVE — ${j.features.length} earthquakes in the last 24h &nbsp;·&nbsp; ${line} &nbsp;·&nbsp; data: USGS, NASA EONET, Open-Meteo — all real-time, zero mock data`;
+}
+
+// ---------- NASA EONET natural events ----------
+const EV_ICON = { wildfires: '🔥', severeStorms: '🌀', volcanoes: '🌋', seaLakeIce: '🧊', floods: '🌊', drought: '🏜️', dustHaze: '🌫️' };
+async function loadEvents() {
+  const r = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=60');
+  const j = await r.json();
+  const counts = {};
+  const rows = [];
+  for (const ev of j.events) {
+    const cat = ev.categories[0]?.id || 'other';
+    counts[cat] = (counts[cat] || 0) + 1;
+    const ico = EV_ICON[cat] || '⚠️';
+    const g = ev.geometry?.[ev.geometry.length - 1];
+    if (g && g.type === 'Point') {
+      const [lon, lat] = g.coordinates;
+      L.marker([lat, lon], { icon: L.divIcon({ html: `<div style="font-size:15px">${ico}</div>`, className: '', iconSize: [18, 18] }) })
+        .addTo(map).bindPopup(`<b>${ico} ${ev.title}</b><br>${cat} · NASA EONET`);
+      if (rows.length < 6) rows.push({ ico, title: ev.title, lat, lon, cat });
+    }
+  }
+  document.getElementById('events').innerHTML =
+    Object.entries(counts).map(([c, n]) => `${EV_ICON[c] || '⚠️'} ${n}`).join(' &nbsp; ') +
+    '<div style="margin-top:6px"></div>' +
+    rows.map(e => `<div class="event-item" onclick="map.flyTo([${e.lat},${e.lon}],5)">
+      <span class="ev-ico">${e.ico}</span><div class="meta">${e.title}<div class="t">${e.cat}</div></div></div>`).join('');
+}
+
+// ---------- your local air + weather (Open-Meteo) ----------
+function usAQIfromPM25(pm) { // EPA breakpoints
+  const bp = [[0,12,0,50],[12.1,35.4,51,100],[35.5,55.4,101,150],[55.5,150.4,151,200],[150.5,250.4,201,300],[250.5,500.4,301,500]];
+  for (const [cl, ch, il, ih] of bp) if (pm <= ch) return Math.round(il + (ih - il) * (pm - cl) / (ch - cl));
+  return 500;
+}
+async function loadLocal(lat, lon, label) {
+  document.getElementById('place').textContent = label;
+  const [aq, wxr] = await Promise.all([
+    fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=pm2_5,us_aqi,uv_index`).then(r => r.json()),
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m`).then(r => r.json()),
+  ]);
+  const pm = aq.current.pm2_5;
+  const aqi = aq.current.us_aqi ?? usAQIfromPM25(pm);
+  const uv = aq.current.uv_index;
+  const t = wxr.current.temperature_2m;
+  const el = (id, v) => document.querySelector(`#${id} .v`).textContent = v;
+  el('s-aqi', aqi); el('s-pm', pm); el('s-temp', t); el('s-uv', uv);
+  document.getElementById('aqi-needle').style.left = Math.min(99, aqi / 3) + '%';
+  const sAqi = document.getElementById('s-aqi');
+  const msg = aqi <= 50 ? ['good', 'Air is clean — breathe easy 🌿'] :
+              aqi <= 100 ? ['warn', 'Moderate — fine for most people.'] :
+              aqi <= 150 ? ['warn', 'Unhealthy for sensitive groups — limit outdoor exertion.'] :
+              ['bad', 'Unhealthy — consider a mask outdoors.'];
+  sAqi.className = 'stat ' + msg[0];
+  document.getElementById('aqi-msg').textContent = msg[1];
+  L.circleMarker([lat, lon], { radius: 7, color: '#4dd8ff', fillColor: '#4dd8ff', fillOpacity: 0.7 })
+    .addTo(map).bindPopup(`<b>You — ${label}</b><br>AQI ${aqi} · ${t}°C`);
+}
+function locate() {
+  const byIP = () => fetch('https://get.geojs.io/v1/ip/geo.json').then(r => r.json())
+    .then(j => loadLocal(j.latitude, j.longitude, `${j.city}`))
+    .catch(() => document.getElementById('place').textContent = 'offline');
+  if (navigator.geolocation)
+    navigator.geolocation.getCurrentPosition(p => loadLocal(p.coords.latitude, p.coords.longitude, 'your location'), byIP, { timeout: 7000 });
+  else byIP();
+}
+
+loadQuakes(); loadEvents(); locate();
+setInterval(loadQuakes, 5 * 60 * 1000);
+setInterval(loadEvents, 10 * 60 * 1000);
+</script>
+</body>
+</html>
